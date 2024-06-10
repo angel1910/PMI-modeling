@@ -1,0 +1,558 @@
+
+---
+title: "APLIKASI METODE MULTIVARIATE LONG SHORT-TERM MEMORY (LSTM) DAN ARIMAX DALAM PEMODELAN DATA BANYAKNYA PEKERJA MIGRAN INDONESIA (PMI)"
+author: "Angelika Anggreni Batubara"
+date: "2024-05-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Package dan Library
+```{r}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 300,
+                      echo = TRUE,
+                      cache = TRUE)
+#Import Library 
+library(readxl)
+library(TTR)
+library(forecast)
+library(tseries)
+library(TSA)
+library(dynlm)
+library(lmtest)
+library(imputeTS)
+library(stats)
+library(MASS)
+library(kableExtra)
+library(padr)
+library(astsa)
+library(tfarima)
+library(FinTS)
+library(tidyverse)
+
+```
+
+
+# Model ARIMA
+
+```{r}
+dataset <- read_excel("D:/Skripsi/data.xlsx")
+df <- dataset$`Jumlah Penempatan`
+dataPengaduan <- dataset$`Jumlah Pengaduan`
+dataInflasi <- dataset$Inflasi
+```
+
+## Eksplorasi Data
+```{r}
+#Mengubah data ke dalam bentuk time series
+#data.ts<-ts(data,frequency=12, start=2018)
+df.ts<-ts(df)
+
+```
+
+```{r}
+#Format Time Series untuk peubah x
+dataPengaduan <- ts(dataPengaduan,frequency=12,start=2018)
+dataInflasi <- ts(dataInflasi, frequency = 12, start = 2018)
+```
+
+
+```{r}
+#Plot data penempatan
+plot(df.ts,xlab ="Periode", ylab = "Data Jumlah Penempatan", col="black", main = "Plot Deret Waktu Data Penempatan")
+points(df.ts)
+```
+
+```{r}
+#Plot Data Inflasi
+plot(dataInflasi,xlab ="Periode", ylab = "Data Inflasi (Persen)", col="black", main = "Plot Data Inflasi (Persen)")
+points(dataInflasi)
+```
+
+```{r}
+#Plot Data Pengaduan
+plot(dataPengaduan,xlab ="Periode", ylab = "Data Pengaduan", col="black", main = "Plot Data Deret Waktu Data Nilai Impor Migas")
+points(dataPengaduan)
+```
+
+
+## Splitting Data (Data Training dan Testing) untuk ARIMA
+Data periode Januari 2018 sampai Januari 2023 digunakan sebagai data training untuk membangun model dan data Februari 2023 sampai Desember 2023 digunakan sebagai data testing untuk memeriksa keakuratan model dalam memprediksi inflasi.
+
+```{r}
+#Splitting Data
+df.train <- ts(df[1:61])
+df.test <- ts(df[62:72])
+
+#Time Series Data
+training.ts<-ts(df.train,start=1)
+testing.ts<-ts(df.test,start=62)
+
+#Plot Data
+par(mfrow=c(2,2))
+plot(training.ts, xlab ="Periode", ylab = "Data Penempatan", col="red", main = "Plot Data Training")
+points(training.ts)
+
+plot(testing.ts, xlab ="Periode", ylab = "Data Penempatan", col="red", main = "Plot Data Testing")
+points(testing.ts)
+```
+
+
+```{r}
+## Plot Data Training dan testing data penempatan
+ts.plot(df.ts, xlab = "Periode", ylab ="Data Penempatan", 
+        main = "Plot Deret Waktu Data Penempatan")
+lines(training.ts, col = "blue")
+lines(testing.ts, col="Red")
+legend(30,30000,c("Data Training","Data Testing"), 
+       lty=c(1,1), col=c("blue","red"), cex=0.8)
+abline(v=62, col=c("black"), lty=1, lwd=1)
+```
+
+
+
+#ARIMA
+## Cek Kestasioneran Data 
+### 1. ACF & PACF Plot data 
+```{r}
+acf(df.train, lag.max = 24, main = "Plot ACF Data Penempatan")
+```
+
+Berdasarkan Plot ACF Data Penempatan, nilai korelasi antar lag terlihat pada plot di atas menurun secara perlahan (tails off slowly). Hal tersebut mengindikasikan bahwa data Penempatan tidak stasioner.
+
+### 2. Uji Formal (ADF-Test)
+Secara formal, metode Augmented Dickey-Fuller (ADF) dapat memberikan hasil uji secara akurat untuk menentukan apakah sebuah data stasioner atau tidak. Namun, Uji ADF ini hanya mengukur tingkat stasioneritas berdasarkan nilai tengah saja. Dengan hipotesis yang diuji sebagai berikut :
+
+H0: Data tidak stasioner
+H1: Data stasioner
+
+α= 5% = 0.05
+
+```{r}
+adf.test(df.train)
+```
+Berdasarkan hasil Augmented Dickey-Fuller Test (ADF Test) didapatkan p-value = 0.9622 > α, maka tak tolak H0. Artinya, cukup bukti untuk mengatakan bahwa data tidak stasioner pada taraf nyata 5%. Untuk mengatasi ketidakstasioneran tersebut, perlu dilakukan differencing.
+
+## Pemodelan ARIMA
+Karena data tidak stasioner, maka akan dilakukan differencing untuk menstasionerkan data.
+
+### Differencing 1
+```{r}
+df.dif1<-diff(df.train,differences = 1) 
+plot.ts(ts(df.dif1,start = 2018, frequency = 12),lty=1,xlab = "Periode", ylab= "Data Penempatan Pembedaan 1", main="Plot Differencing Data Penempatan")
+```
+
+Berdasarkan plot diatas, setelah data dilakukan differencing sebanyak satu kali d=1, pola data penempatan  sudah stasioner dalam nilai tengah.
+
+### Cek Kestasioneran Data Setelah Differencing 1
+
+Pengujian menggunakan Augmented Dickey-Fuller Test
+
+H0: Data tidak stasioner
+H1: Data stasioner
+
+α= 5% = 0.05
+
+```{r}
+adf.test(df.dif1)
+```
+Berdasarkan hasil Augmented Dickey-Fuller Test (ADF Test) didapatkan p-value = 0.04268 < α, maka tolak H_0. Artinya, cukup bukti untuk mengatakan bahwa data stasioner pada taraf nyata 5% setelah dilakukan differencing sebanyak 1 kali.
+
+
+
+### ACF dan PACF Plot, EACF Matrix
+```{r}
+acf(df.dif1, lag.max = 24, main = "Plot ACF Data Penempatan Setelah Differencing satu kali")
+```
+
+```{r}
+pacf(df.dif1, lag.max = 24, main = "Plot PACF Data Penempatan Setelah Differencing satu kali")
+```
+Berdasarkan plot ACF dan PACF di atas,terlihat bahwa nilai korelasi antara data dengan lag seperti gambar di atas tidak turun secara perlahan, dimana pada plot ACF diperoleh cuts off pada lag ke-1. Berdasarkan hasil eksplorasi di atas, model yang dapat dibentuk secara berurutan adalah ARIMA(0,1,1) dan ARIMA(1,1,0)
+
+```{r}
+eacf(df.dif1)
+```
+Dari Matriks EACF Data Penempatan dapat diduga model yang cocok adalah model :
+1. ARIMA(1,1,0)
+2. ARIMA(1,1,1)
+3. ARIMA(2,1,1)
+
+### Pemodelan ARIMA Data Penempatan
+Berdasarkan plot ACF, PACF, dan matriks EACF, diperoleh 2 model tentatif beserta orde parameternya, sebagai berikut:
+
+```{r}
+model1 <- Arima(df.dif1, order=c(0,1,1), method="ML")   
+model2 <- Arima(df.dif1, order=c(1,1,0), method="ML") 
+model3 <- Arima(df.dif1, order=c(1,1,1), method="ML") 
+model4 <- Arima(df.dif1, order=c(2,1,1), method="ML") 
+```
+
+### Pendugaan Parameter Model
+#### Arima (0,1,1)
+```{r}
+summary(model1)
+lmtest::coeftest((model1)) 
+```
+
+Berdasarkan data di atas diperoleh bahwa parameter pada model ARIMA(0,1,1) signifikan. Hal ini dapat dilihat dari nilai Pr(>|z|) < 0.05 pada  parameter, sehingga model tersebut dapat dimasukan kedalam kandidat model terbaik.
+
+#### Arima (1,1,0)
+```{r}
+summary(model2)
+lmtest::coeftest((model2)) 
+```
+
+Berdasarkan data di atas diperoleh bahwa  parameter pada model ARIMA(1,1,0) signifikan. Hal ini dapat dilihat dari nilai Pr(>|z|) < 0.05 pada  parameter, sehingga model tersebut dapat dimasukan kedalam kandidat model terbaik.
+
+#### Arima (1,1,1)
+```{r}
+summary(model3)
+lmtest::coeftest((model3)) 
+```
+Berdasarkan data di atas diperoleh bahwa setiap parameter pada model ARIMA(1,1,1) signifikan. Hal ini dapat dilihat dari nilai Pr(>|z|) < 0.05 pada setiap parameter, sehingga model tersebut dapat dimasukan kedalam kandidat model terbaik.
+
+#### Arima (2,1,1)
+```{r}
+summary(model4)
+lmtest::coeftest((model4)) 
+```
+Berdasarkan data di atas diperoleh bahwa terdapat dua parameter pada model ARIMA(2,1,1) signifikan dan satu parameter tidak signifikan. Hal ini dapat dilihat dari nilai Pr(>|z|) < 0.05 pada  parameter AR1 dam MA1 dan AR2 sebaliknya
+ 
+### Perbandingan Kebaikan Model Tentatif
+```{r}
+#AIC ARIMA dan Signifikansi Parameter
+modelaccuracy<-data.frame(
+  "Model"=c("ARIMA(0,1,1)", "ARIMA(1,1,0)", "ARIMA(1,1,1)", "ARIMA(2,1,1)" ),
+  "AIC"=c(model1$aic, model2$aic, model3$aic,model4$aic),
+  "BIC"=c(model1$bic, model2$bic, model3$bic,model4$bic) ,
+  "Signifikansi"=c("Signifikan","Signifikan", "Signifikan", "Tidak Signifikan"))
+
+modelaccuracy
+```
+
+
+
+Selain nilai AIC terkecil, perlu dilihat dari signifikasi pendugaan parameter model. Terdapat satu model tentatif yang tidak signifikan yaitu ARIMA(2,1,1). Model ARIMA(1,1,1) memiliki nilai AIC dan BIC terendah dibandingkan keempat kandidat model yang lainnya, sehingga model ARIMA(1,1,1) dipilih sebagai model terbaik
+
+
+# Model ARIMAX
+
+```{r}
+model3arimax <- Arima(df.train, order = c(1,1,1), xreg = cbind(dataPengaduan.train,dataInflasi.train), method = "ML")
+```
+
+```{r}
+summary(model3arimax)
+lmtest::coeftest((model3arimax))
+```
+
+### Overfitting
+Overfitting yang digunakan adalah model ARIMA(1,1,2). Model ARIMA(1,1,1) akan dibandingkan dengan model ARIMA(1,1,2)
+# (1,1,2)
+```{r}
+model3arimax1 <- Arima(df.train, order = c(1,1,2), xreg = cbind(dataPengaduan.train,dataInflasi.train), method = "ML")  
+```
+
+```{r}
+summary(model3arimax1)
+lmtest::coeftest((model3arimax1))
+```
+# (1,1,2)
+```{r}
+model3arimax2 <- Arima(df.train, order = c(2,1,1), xreg = cbind(dataPengaduan.train,dataInflasi.train), method = "ML")  
+```
+
+```{r}
+summary(model3arimax2)
+lmtest::coeftest((model3arimax2))
+```
+
+```{r}
+#AIC ARIMA dan Signifikansi Parameter Model Overfitting
+modelaccuracy<-data.frame(
+  "Model"=c("ARIMAX(1,1,1)", "ARIMAX(1,1,2)", "ARIMAX(2,1,1)"),
+  "AIC"=c(model3arimax$aic, model3arimax1$aic, model3arimax2$aic),
+  "BIC"=c(model3arimax$bic, model3arimax1$bic, model3arimax2$bic),
+  "Signifikansi"=c("Signifikan","Tidak Signifikan","Tidak Signifikan"))
+
+modelaccuracy
+```
+
+
+# Uji Diagnostik Sisaan
+```{r}
+sisaanx <- model3arimax$residuals
+par(mfrow=c(2,2))
+qqnorm(sisaanx)
+box(col="black",lwd=2)
+qqline(sisaanx, col = "red", lwd =1, col.lab="black",
+       col.axis="black",col.sub = "black")
+box(col="black",lwd=2)
+plot(c(1:length(sisaanx)),sisaanx,col="black",col.lab="black",col.axis="black")
+box(col="black",lwd=2)
+acf(sisaanx,col="black",col.sub = "black",col.axis="black", col.lab="black")
+box(col="black",lwd=2)
+pacf(sisaanx,col="black",col.sub = "black",col.axis="black", col.lab="black",col.main="black")
+box(col="black",lwd=2)
+```
+
+
+## Pengujian White Noise Regressi
+
+H0 : ρ1= ρ2 = …. = ρk = 0 untuk k = 1, 2, …, n (Sisaan saling bebas atau sisaan white noise)
+H1: minimal ada satu ρk ≠ 0 , untuk k = 1, 2, …, n (Sisaan tidak saling bebas atau sisaan tidak terjadi white noise)
+
+```{r}
+Box.test(sisaanx, lag = 24)
+```
+Berdasarkan LJung-Box test, diperoleh p-value  > α = 0.05, maka tak tolak H0. Artinya, cukup bukti untuk menyatakan bahwa sisaan antara lag saling bebas atau sisaan  terjadi white noise pada taraf nyata 5%.
+
+
+##Sisaan Menyebar Normal
+Uji formal ini dilakukan dengan Shapiro-Wilk test.
+
+Hipotesis yang diuji:
+H0: Sisaan menyebar normal
+H1: Sisaan tidak menyebar normal
+
+α= 5% = 0.05
+```{r}
+shapiro.test(sisaanx)
+```
+
+
+Berdasarkan hasil Shapiro-Wilk test, diperoleh p-value = 0.022 > α = 0.05, maka tak tolak H0. Artinya, tidak cukup bukti untuk menyatakan bahwa sisaan menyebar normal pada taraf nyata 5%.
+
+Lestari et al. (2022) berdasarkan Anderson et al. (2011) menyebutkan bahwa untuk 
+penggunaan data lebih dari 30 amatan, ketidaknormalan sebaran sisaan dapat 
+ditoleransi sesuai dengan teorema limit pusat yang berbunyi “suatu distribusi dapat 
+didekati dengan distribusi normal apabila ukuran datanya lebih besar atau sama 
+dengan 30.”
+
+
+##Uji Kehomogenan Ragam Sisaan
+Breusch-Pagan Test
+
+H0: ragam sisaan homogen
+H1: ragam sisaan tidak homogen
+
+```{r}
+ArchTest(sisaanx)
+```
+Berdasarkan ArchTest, diperoleh p-value = 0.8752 > α = 0.05, maka tak tolak H0. Artinya, cukup bukti untuk menyatakan bahwa ragam sisaan homogen pada taraf nyata 5%
+
+
+
+## Forecast Model ARIMAX(1,1,1) data testing
+```{r}
+library(forecast)
+ramalanx <- forecast((model3arimax), xreg = cbind(dataPengaduan.test,dataInflasi.test))
+ramalanx
+```
+
+```{r}
+data.ramalanx <- ramalanx$mean
+data.ramalan.tsx <- ts(data.ramalanx, start = 2022, frequency = 12)
+plot(ramalanx,col="black",col.sub ="black",col.axis="black",
+     col.lab="black",col.main="black",lwd=2)
+box(col="black",lwd=2)
+```
+
+```{r}
+perbandinganx <- matrix(c(df.test[1:11], data.ramalanx[1:11]), nrow = 11, ncol = 2, byrow = FALSE)
+colnames(perbandinganx) <- c("Aktual", "Ramalan")
+perbandinganx
+```
+```{r}
+perbandinganx
+```
+
+
+```{r}
+error <- data.frame(df.test)-data.frame(data.ramalanx[1:11]) 
+
+## SSE (Sum Square Error)
+SSE <- sum(error^2, na.rm = T)
+
+## MSE (Mean Squared Error)
+MSE<- sapply(error^2, mean, na.rm = T)
+
+## RMSE (Root Mean Square Error)
+RMSE <- sqrt(MSE)
+
+## MAD (Mean Absolute Deviation)
+MAD <- sapply(abs(error), mean, na.rm = T)
+
+## MAPE (Mean Absolute Percentage Error)
+r.error <- (error/data.frame(df.test)) # Relative Error
+MAPE <- sapply(abs(r.error), mean, na.rm = T)*100
+```
+
+```{r}
+akurasiarimax <- data.frame(
+  "Ukuran Keakuratan" = c("SSE", "MSE", "MAPE", "RMSE", "MAD"), 
+  "Forecasting" = c(SSE, MSE, MAPE, RMSE, MAD))
+akurasiarimax
+```
+
+```{r}
+# Membuat urutan angka
+# Membuat urutan angka
+aa <- seq(1:11)
+
+# Plotting
+plot(aa, df.test[1:11], type='o', col='blue', ylim=range(c(df.test[1:11], data.ramalanx[1:11])), 
+     xlab='Time step', ylab='Jumlah Penempatan', main='Perbandingan Aktual dan Ramalan')
+lines(aa, data.ramalanx[1:11], type='o', col='red')
+legend("topright", legend=c("Prediksi", "Aktual"), col=c("red", "blue"), lty=1)
+
+```
+
+
+
+## Forecast Model ARIMAX(1,1,1)
+```{r}
+library(forecast)
+ramalanx.train <- forecast((model3arimax), xreg = cbind(dataPengaduan.train,dataInflasi.train))
+ramalanx.train
+```
+
+
+```{r}
+data.ramalanx.train <- ramalanx.train$mean
+data.ramalan.tsx <- ts(data.ramalanx.train, start = 2022, frequency = 12)
+plot(ramalanx.train,col="black",col.sub ="black",col.axis="black",
+     col.lab="black",col.main="black",lwd=2)
+box(col="black",lwd=2)
+```
+
+
+```{r}
+perbandinganx.train <- matrix(c(df.train, data.ramalanx.train), nrow = 61, ncol = 2, byrow = FALSE)
+colnames(perbandinganx) <- c("Aktual", "Ramalan")
+perbandinganx.train
+```
+
+```{r}
+# Memuat paket openxlsx
+library(openxlsx)
+
+# Membuat matriks perbandinganx.train
+perbandinganx.train <- matrix(c(df.train, data.ramalanx.train), nrow = 61, ncol = 2, byrow = FALSE)
+colnames(perbandinganx.train) <- c("Aktual", "Ramalan")
+
+# Mengubah matriks ke dalam bentuk data frame
+perbandinganx.train.df <- as.data.frame(perbandinganx.train)
+
+# Menyimpan data frame perbandinganx.train ke file Excel
+write.xlsx(perbandinganx.train.df, file = "D:/Skripsi/Draft Skripsi/perbandinganx_train.xlsx")
+
+```
+
+```{r}
+perbandinganx.train
+```
+
+
+```{r}
+perbandinganx.train
+```
+
+
+
+```{r}
+error.train <- data.frame(df.train)-data.frame(data.ramalanx.train) 
+
+## SSE (Sum Square Error)
+SSE.train <- sum(error.train^2, na.rm = T)
+
+## MSE (Mean Squared Error)
+MSE.train<- sapply(error.train^2, mean, na.rm = T)
+
+## RMSE (Root Mean Square Error)
+RMSE.train <- sqrt(MSE.train)
+
+## MAD (Mean Absolute Deviation)
+MAD.train <- sapply(abs(error.train), mean, na.rm = T)
+
+## MAPE (Mean Absolute Percentage Error)
+r.error.train <- (error/data.frame(df.train[1:11])) # Relative Error
+MAPE.train <- sapply(abs(r.error.train), mean, na.rm = T)*100
+```
+
+```{r}
+akurasiarimax.train <- data.frame(
+  "Ukuran Keakuratan" = c("SSE.train", "MSE.train", "MAPE.train", "RMSE.train", "MAD.train"), 
+  "Forecasting" = c(SSE.train, MSE.train, MAPE.train, RMSE.train, MAD.train))
+akurasiarimax.train
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
